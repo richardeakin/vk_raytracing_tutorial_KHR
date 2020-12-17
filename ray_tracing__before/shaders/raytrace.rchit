@@ -10,9 +10,19 @@ hitAttributeEXT vec3 attribs;
 
 layout(location = 0) rayPayloadInEXT hitPayload prd;
 
+layout(binding = 1, set = 1, scalar) buffer MatColorBufferObject {
+    WaveFrontMaterial m[];
+} materials[];
+
 layout(binding = 2, set = 1, scalar) buffer ScnDesc {
     sceneDesc i[];
 } scnDesc;
+
+layout(binding = 3, set = 1) uniform sampler2D textureSamplers[];
+
+layout(binding = 4, set = 1)  buffer MatIndexColorBuffer {
+    int i[];
+} matIndex[];
 
 layout(binding = 5, set = 1, scalar) buffer Vertices {
     Vertex v[];
@@ -21,7 +31,6 @@ layout(binding = 5, set = 1, scalar) buffer Vertices {
 layout(binding = 6, set = 1) buffer Indices {
     uint i[];
 } indices[];
-
 
 layout(push_constant) uniform Constants
 {
@@ -77,7 +86,22 @@ void main()
         L = normalize(pushC.lightPosition - vec3(0));
     }
 
-    float dotNL = max(dot(normal, L), 0.2);
+    // Material of the object
+    int               matIdx = matIndex[nonuniformEXT(objId)].i[gl_PrimitiveID]; // ??? (rte): why nonuniformEXT() ?
+    WaveFrontMaterial mat    = materials[nonuniformEXT(objId)].m[matIdx];
 
-    prd.hitValue = vec3(dotNL);
+    // Diffuse
+    vec3 diffuse = computeDiffuse(mat, L, normal);
+    if(mat.textureId >= 0)
+    {
+        uint txtId = mat.textureId + scnDesc.i[gl_InstanceCustomIndexEXT].txtOffset;
+        vec2 texCoord =
+            v0.texCoord * barycentrics.x + v1.texCoord * barycentrics.y + v2.texCoord * barycentrics.z;
+        diffuse *= texture(textureSamplers[nonuniformEXT(txtId)], texCoord).xyz;
+    }
+  
+    // Specular
+    vec3 specular = computeSpecular(mat, gl_WorldRayDirectionEXT, L, normal);
+
+    prd.hitValue = vec3(lightIntensity * (diffuse + specular));
 }
