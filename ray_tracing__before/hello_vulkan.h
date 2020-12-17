@@ -31,6 +31,7 @@
 #include "nvvk/appbase_vkpp.hpp"
 #include "nvvk/debug_util_vk.hpp"
 #include "nvvk/descriptorsets_vk.hpp"
+#include "nvvk/raytraceKHR_vk.hpp"
 
 //--------------------------------------------------------------------------------------------------
 // Simple rasterizer of OBJ objects
@@ -38,6 +39,7 @@
 // - It is possible to have many `ObjInstance` referencing the same `ObjModel`
 // - Rendering is done in an offscreen framebuffer
 // - The image of the framebuffer is displayed in post-process in a full-screen quad
+// - RTE: modified for rtx raytracing according to https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/#introduction
 //
 class HelloVulkan : public nvvk::AppBase
 {
@@ -129,4 +131,36 @@ public:
   vk::Format                  m_offscreenColorFormat{vk::Format::eR32G32B32A32Sfloat};
   nvvk::Texture               m_offscreenDepth;
   vk::Format                  m_offscreenDepthFormat{vk::Format::eD32Sfloat};
+
+  // #VKRay
+  void                                              initRayTracing();
+  nvvk::RaytracingBuilderKHR::BlasInput             objectToVkGeometryKHR(const ObjModel& model);
+  void                                              createBottomLevelAS();
+  void                                              createTopLevelAS();
+  void                                              createRtDescriptorSet();
+  void                                              updateRtDescriptorSet();
+  void                                              createRtPipeline();
+  void                                              createRtShaderBindingTable();
+  void                                              raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f& clearColor);
+
+  vk::PhysicalDeviceRayTracingPipelinePropertiesKHR  m_rtProperties;
+  nvvk::RaytracingBuilderKHR                         m_rtBuilder;
+
+  nvvk::DescriptorSetBindings                        m_rtDescSetLayoutBind;
+  vk::DescriptorPool                                 m_rtDescPool;
+  vk::DescriptorSetLayout                            m_rtDescSetLayout;
+  vk::DescriptorSet                                  m_rtDescSet;
+
+  std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
+  vk::PipelineLayout                                 m_rtPipelineLayout;
+  vk::Pipeline                                       m_rtPipeline;
+  nvvk::Buffer                                       m_rtSBTBuffer;
+
+  struct RtPushConstant
+  {
+      nvmath::vec4f clearColor;
+      nvmath::vec3f lightPosition;
+      float         lightIntensity;
+      int           lightType;
+  } m_rtPushConstants;
 };

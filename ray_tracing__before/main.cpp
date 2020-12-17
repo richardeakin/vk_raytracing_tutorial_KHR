@@ -143,6 +143,18 @@ int main(int argc, char** argv)
   contextInfo.addDeviceExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
   contextInfo.addDeviceExtension(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME);
 
+  // #VKRay: Activate the ray tracing extension
+  vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
+  contextInfo.addDeviceExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, false,
+      &accelFeature);
+  vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature;
+  contextInfo.addDeviceExtension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, false,
+      &rtPipelineFeature);
+  contextInfo.addDeviceExtension(VK_KHR_MAINTENANCE3_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+
   // Creating Vulkan base application
   nvvk::Context vkctx{};
   vkctx.initInstance(contextInfo);
@@ -171,6 +183,7 @@ int main(int argc, char** argv)
 
   // Creation of the example
   helloVk.loadModel(nvh::findFile("media/scenes/cube_multi.obj", defaultSearchPaths, true));
+  //helloVk.loadModel(nvh::findFile("media/scenes/wuson.obj", defaultSearchPaths, true));
 
   helloVk.createOffscreenRender();
   helloVk.createDescriptorSetLayout();
@@ -179,10 +192,21 @@ int main(int argc, char** argv)
   helloVk.createSceneDescriptionBuffer();
   helloVk.updateDescriptorSet();
 
+  // #VKRay
+  helloVk.initRayTracing();
+  helloVk.createBottomLevelAS();
+  helloVk.createTopLevelAS();
+  helloVk.createRtDescriptorSet();
+  helloVk.createRtPipeline();
+  helloVk.createRtShaderBindingTable();
+
   helloVk.createPostDescriptor();
   helloVk.createPostPipeline();
   helloVk.updatePostDescriptorSet();
+
+
   nvmath::vec4f clearColor = nvmath::vec4f(1, 1, 1, 1.00f);
+  bool          useRaytracer = true;
 
 
   helloVk.setupGlfwCallbacks(window);
@@ -204,6 +228,7 @@ int main(int argc, char** argv)
     {
       ImGuiH::Panel::Begin();
       ImGui::ColorEdit3("Clear color", reinterpret_cast<float*>(&clearColor));
+      ImGui::Checkbox("Use Ray Tracer", &useRaytracer); // Switch between raster and ray tracing
       renderUI(helloVk);
       ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                   1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
@@ -240,9 +265,15 @@ int main(int argc, char** argv)
       offscreenRenderPassBeginInfo.setRenderArea({{}, helloVk.getSize()});
 
       // Rendering Scene
-      cmdBuf.beginRenderPass(offscreenRenderPassBeginInfo, vk::SubpassContents::eInline);
-      helloVk.rasterize(cmdBuf);
-      cmdBuf.endRenderPass();
+      if(useRaytracer)
+      {
+          helloVk.raytrace(cmdBuf, clearColor);
+      }
+      else {
+          cmdBuf.beginRenderPass(offscreenRenderPassBeginInfo, vk::SubpassContents::eInline);
+          helloVk.rasterize(cmdBuf);
+          cmdBuf.endRenderPass();
+      }
     }
 
 
