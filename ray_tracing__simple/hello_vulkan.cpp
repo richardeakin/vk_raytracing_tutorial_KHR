@@ -634,6 +634,9 @@ void HelloVulkan::initRayTracing()
       m_physicalDevice.getProperties2<vk::PhysicalDeviceProperties2,
                                       vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
   m_rtProperties = properties.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
+
+  assert( m_rtProperties.maxRayRecursionDepth >= 2 );
+
   m_rtBuilder.setup(m_device, &m_alloc, m_graphicsQueueIndex);
 }
 

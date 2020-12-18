@@ -793,6 +793,17 @@ void HelloVulkan::createRtPipeline()
     mg.setGeneralShader(static_cast<uint32_t>(stages.size() - 1));
     m_rtShaderGroups.push_back(mg);
 
+    // The second miss shader is invoked when a shadow ray misses the geometry. It
+    // simply indicates that no occlusion has been found
+    vk::ShaderModule shadowmissSM =
+        nvvk::createShaderModule(m_device,
+            nvh::loadFile("shaders/raytraceShadow.rmiss.spv", true, paths, true));
+
+    // Shadow Miss
+    stages.push_back({{}, vk::ShaderStageFlagBits::eMissKHR, shadowmissSM, "main"});
+    mg.setGeneralShader(static_cast<uint32_t>(stages.size() - 1));
+    m_rtShaderGroups.push_back(mg);
+
     // Hit Group - Closest Hit + AnyHit
     vk::ShaderModule chitSM =
         nvvk::createShaderModule(m_device,  //
@@ -831,13 +842,18 @@ void HelloVulkan::createRtPipeline()
         static_cast<uint32_t>(m_rtShaderGroups.size()));
     rayPipelineInfo.setPGroups(m_rtShaderGroups.data());
 
-    rayPipelineInfo.setMaxPipelineRayRecursionDepth(1);  // Ray depth
+    // The ray tracing process can shoot rays from the camera, and a shadow ray can be shot from the
+    // hit points of the camera rays, hence a recursion level of 2. This number should be kept as low
+    // as possible for performance reasons. Even recursive ray tracing should be flattened into a loop
+    // in the ray generation to avoid deep recursion.
+    rayPipelineInfo.setMaxPipelineRayRecursionDepth(2);  // Ray depth (camera + shadow ray)
     rayPipelineInfo.setLayout(m_rtPipelineLayout);
     m_rtPipeline = static_cast<const vk::Pipeline&>(
         m_device.createRayTracingPipelineKHR({}, {}, rayPipelineInfo));
  
     m_device.destroy(raygenSM);
     m_device.destroy(missSM);
+    m_device.destroy(shadowmissSM);
     m_device.destroy(chitSM);
 }
 
@@ -915,8 +931,8 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f&
     using Stride = vk::StridedDeviceAddressRegionKHR;
     std::array<Stride, 4> strideAddresses{
         Stride{sbtAddress + 0u * groupSize, groupStride, groupSize * 1},  // raygen
-        Stride{sbtAddress + 1u * groupSize, groupStride, groupSize * 1},  // miss
-        Stride{sbtAddress + 2u * groupSize, groupStride, groupSize * 1},  // hit
+        Stride{sbtAddress + 1u * groupSize, groupStride, groupSize * 2},  // miss
+        Stride{sbtAddress + 3u * groupSize, groupStride, groupSize * 1},  // hit
         Stride{0u, 0u, 0u}};                                              // callable
 
     cmdBuf.traceRaysKHR(&strideAddresses[0], &strideAddresses[1], &strideAddresses[2],

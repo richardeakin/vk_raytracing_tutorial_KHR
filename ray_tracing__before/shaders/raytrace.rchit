@@ -9,6 +9,9 @@
 hitAttributeEXT vec3 attribs;
 
 layout(location = 0) rayPayloadInEXT hitPayload prd;
+layout(location = 1) rayPayloadEXT bool isShadowed;
+
+layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 
 layout(binding = 1, set = 1, scalar) buffer MatColorBufferObject {
     WaveFrontMaterial m[];
@@ -101,7 +104,42 @@ void main()
     }
   
     // Specular
-    vec3 specular = computeSpecular(mat, gl_WorldRayDirectionEXT, L, normal);
+    vec3  specular    = vec3(0);
+    float attenuation = 1;
 
-    prd.hitValue = vec3(lightIntensity * (diffuse + specular));
+    // Tracing shadow ray only if the light is visible from the surface
+    if(dot(normal, L) > 0)
+    {
+        float tMin   = 0.001;
+        float tMax   = lightDistance;
+        vec3  origin = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
+        vec3  rayDir = L;
+        uint  flags =
+            gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+        isShadowed = true;
+        traceRayEXT(topLevelAS,  // acceleration structure
+                flags,       // rayFlags
+                0xFF,        // cullMask
+                0,           // sbtRecordOffset
+                0,           // sbtRecordStride
+                1,           // missIndex
+                origin,      // ray origin
+                tMin,        // ray min range
+                rayDir,      // ray direction
+                tMax,        // ray max range
+                1            // payload (location = 1)
+        );
+    }
+
+    if(isShadowed)
+    {
+        attenuation = 0.3;
+    }
+    else
+    {
+        // Specular
+        specular = computeSpecular(mat, gl_WorldRayDirectionEXT, L, normal);
+    }
+
+    prd.hitValue = vec3(lightIntensity * attenuation * (diffuse + specular));
 }
