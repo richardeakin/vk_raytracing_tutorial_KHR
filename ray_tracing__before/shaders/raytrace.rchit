@@ -3,6 +3,7 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_ARB_shader_clock : enable
 #include "raycommon.glsl"
 #include "wavefront.glsl"
 
@@ -43,6 +44,55 @@ layout(push_constant) uniform Constants
   int   lightType;
 }
 pushC;
+
+// http://www.neilmendoza.com/glsl-rotation-about-an-arbitrary-axis/
+mat4 angleAxis( float angle, vec3 axis )
+{
+    axis = normalize(axis);
+    float s = sin(angle);
+    float c = cos(angle);
+    float oc = 1.0 - c;
+    
+    return mat4( oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+                 oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,  0.0,
+                 oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c,           0.0,
+                 0.0,                                0.0,                                0.0,                                1.0 );
+}
+
+#ifndef PI
+#define PI 3.14159265359
+#endif
+
+float nextRand( float seed )
+{
+    return fract( sin( seed * 30103.03 ) * 121.1 ); // TODO: improve this
+}
+
+// Returns a random direction vector inside a cone
+// Angle defined in radians
+// Example: direction=(0,1,0) and angle=pi returns ([-1,1],[0,1],[-1,1])
+vec3 getConeSample( float randSeed, vec3 direction, float coneAngle )
+{
+    float cosAngle = cos(coneAngle);
+
+    // Generate points on the spherical cap around the north pole
+    // https://math.stackexchange.com/a/205589/81266
+    float z = nextRand(randSeed) * (1.0f - cosAngle) + cosAngle;
+    float phi = nextRand(randSeed) * 2.0f * PI;
+
+    float x = sqrt( 1.0 - z * z ) * cos(phi);
+    float y = sqrt( 1.0 - z * z ) * sin(phi);
+    vec3 north = vec3( 0, 1, 0 );
+
+    // Find the rotation axis `u` and rotation angle `rot` [1]
+    vec3 axis = normalize(cross(north, normalize(direction)));
+    float angle = acos(dot(normalize(direction), north));
+
+    // Convert rotation axis and angle to 3x3 rotation matrix [2]
+    mat3 R = mat3( angleAxis( angle, axis ) );
+
+    return R * vec3(x, y, z);
+}
 
 void main()
 {
@@ -110,12 +160,30 @@ void main()
     // Tracing shadow ray only if the light is visible from the surface
     if(dot(normal, L) > 0)
     {
+        // calculate cone angle for soft shadow
+        // https://medium.com/@alexander.wester/ray-tracing-soft-shadows-in-real-time-a53b836d123b
+
+        // Calculate a vector perpendicular to L
+        vec3 perpL = cross( L, vec3( 0, 1, 0 ) );
+        // Handle case where L = up -> perpL should then be (1,0,0)
+        if( perpL == vec3( 0 ) ) {
+            perpL.x = 1.0;
+        }
+        // Use perpL to get a vector from worldPosition to the edge of the light sphere
+        const float lightRadius = 20.0; // TODO: add to pushC
+        vec3 toLightEdge = normalize( ( pushC.lightPosition + perpL * lightRadius ) - worldPos );
+        // Angle between L and toLightEdge. Used as the cone angle when sampling shadow rays
+        float coneAngle = acos( dot( L, toLightEdge ) ) * 2.0;
+
         float tMin   = 0.001;
         float tMax   = lightDistance;
         vec3  origin = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
-        vec3  rayDir = L;
-        uint  flags =
-            gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+//        vec3  rayDir = L;
+
+        float randSeed = float( clockARB() ) + worldPos.x + worldPos.y + worldPos.z;
+        vec3 rayDir = getConeSample( randSeed, L, coneAngle );
+
+        uint  flags = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT;
         isShadowed = true;
         traceRayEXT(topLevelAS,  // acceleration structure
                 flags,       // rayFlags
